@@ -10,6 +10,7 @@
 #include "resource.h"
 
 STATIC_DATA config = {0};
+MENU_STATE menu = {0};
 
 #define RND_MAX INT_MAX
 
@@ -485,6 +486,330 @@ VOID DestroyMatrix (
 	_r_mem_free (old_matrix);
 }
 
+VOID DrawTerminalMenu (
+	_In_ HDC hdc,
+	_In_ ULONG screen_width,
+	_In_ ULONG screen_height
+)
+{
+	static LPCWSTR names[MENU_ITEM_COUNT] = {
+		L"SPEED",
+		L"DENSITY",
+		L"AMOUNT",
+		L"HUE",
+		L"RANDOM COLORS",
+		L"SMOOTH TRANSITION",
+		L"ESC ONLY"
+	};
+
+	static LONG mins[MENU_ITEM_COUNT] = {
+		SPEED_MIN, DENSITY_MIN, AMOUNT_MIN, HUE_MIN, 0, 0, 0
+	};
+
+	static LONG maxs[MENU_ITEM_COUNT] = {
+		SPEED_MAX, DENSITY_MAX, AMOUNT_MAX, HUE_MAX, 1, 1, 1
+	};
+
+	LONG values[MENU_ITEM_COUNT];
+	HFONT hfont_old;
+	HBRUSH bg_brush;
+	HPEN border_pen;
+	HPEN old_pen;
+	HBRUSH old_brush;
+	RECT rect;
+	WCHAR line[128];
+	LPCWSTR cursor;
+	LONG menu_w;
+	LONG menu_h;
+	LONG line_h;
+	LONG left;
+	LONG top;
+	LONG x;
+	LONG y;
+	LONG i;
+
+	values[0] = config.speed;
+	values[1] = config.density;
+	values[2] = config.amount;
+	values[3] = config.hue;
+	values[4] = (LONG)config.is_random;
+	values[5] = (LONG)config.is_smooth;
+	values[6] = (LONG)config.is_esc_only;
+
+	line_h = 20;
+	menu_w = 440;
+	menu_h = line_h * 12 + 32;
+	left = ((LONG)screen_width - menu_w) / 2;
+	top = ((LONG)screen_height - menu_h) / 2;
+
+	// Create font on first use
+	if (!menu.hfont)
+	{
+		menu.hfont = CreateFontW (
+			16, 0, 0, 0,
+			FW_NORMAL, FALSE, FALSE, FALSE,
+			DEFAULT_CHARSET,
+			OUT_DEFAULT_PRECIS,
+			CLIP_DEFAULT_PRECIS,
+			CLEARTYPE_QUALITY,
+			FIXED_PITCH | FF_MODERN,
+			L"Consolas"
+		);
+	}
+
+	hfont_old = (HFONT)SelectObject (hdc, menu.hfont);
+
+	// Draw background
+	bg_brush = CreateSolidBrush (RGB (0, 10, 0));
+
+	rect.left = left;
+	rect.top = top;
+	rect.right = left + menu_w;
+	rect.bottom = top + menu_h;
+
+	FillRect (hdc, &rect, bg_brush);
+	DeleteObject (bg_brush);
+
+	// Draw border
+	border_pen = CreatePen (PS_SOLID, 2, RGB (0, 180, 0));
+	old_pen = (HPEN)SelectObject (hdc, border_pen);
+	old_brush = (HBRUSH)SelectObject (hdc, GetStockObject (NULL_BRUSH));
+
+	Rectangle (hdc, left, top, left + menu_w, top + menu_h);
+
+	SelectObject (hdc, old_pen);
+	SelectObject (hdc, old_brush);
+	DeleteObject (border_pen);
+
+	SetBkMode (hdc, TRANSPARENT);
+
+	x = left + 16;
+	y = top + 12;
+
+	// Title
+	SetTextColor (hdc, RGB (0, 255, 65));
+	wsprintfW (line, L"  MATRIX CONTROL TERMINAL  v%s", APP_VERSION);
+	TextOutW (hdc, x, y, line, lstrlenW (line));
+	y += line_h;
+
+	// Separator
+	SetTextColor (hdc, RGB (0, 120, 30));
+	wsprintfW (line, L"  ==========================================");
+	TextOutW (hdc, x, y, line, lstrlenW (line));
+	y += line_h;
+
+	// Half-line gap
+	y += line_h / 2;
+
+	// Menu items
+	for (i = 0; i < MENU_ITEM_COUNT; i++)
+	{
+		cursor = (i == menu.selected) ? L"> " : L"  ";
+
+		if (i == menu.selected)
+			SetTextColor (hdc, RGB (0, 255, 65));
+		else
+			SetTextColor (hdc, RGB (0, 140, 35));
+
+		if (maxs[i] <= 1)
+		{
+			wsprintfW (line, L"%s%-20s [ %s ]",
+				cursor, names[i],
+				values[i] ? L"ON " : L"OFF");
+		}
+		else
+		{
+			wsprintfW (line, L"%s%-20s [%4d ]  %d-%d",
+				cursor, names[i],
+				values[i], mins[i], maxs[i]);
+		}
+
+		TextOutW (hdc, x, y, line, lstrlenW (line));
+		y += line_h;
+	}
+
+	// Half-line gap
+	y += line_h / 2;
+
+	// Bottom separator
+	SetTextColor (hdc, RGB (0, 120, 30));
+	wsprintfW (line, L"  ==========================================");
+	TextOutW (hdc, x, y, line, lstrlenW (line));
+	y += line_h;
+
+	// Help text
+	SetTextColor (hdc, RGB (0, 100, 25));
+	wsprintfW (line, L"  F1:MENU  ARROWS:NAV/SET  SHIFT:x10  R:RST");
+	TextOutW (hdc, x, y, line, lstrlenW (line));
+
+	SelectObject (hdc, hfont_old);
+}
+
+BOOLEAN HandleMenuKey (
+	_In_ HWND hwnd,
+	_In_ WPARAM wparam
+)
+{
+	LONG delta;
+	LONG new_val;
+
+	// Only enable menu in fullscreen mode
+	if (GetParent (hwnd))
+		return FALSE;
+
+	// F1 toggles menu visibility
+	if (wparam == VK_F1)
+	{
+		menu.is_visible = !menu.is_visible;
+
+		if (!menu.is_visible)
+			SaveSettings ();
+
+		return TRUE;
+	}
+
+	// If menu is not visible, don't consume the key
+	if (!menu.is_visible)
+		return FALSE;
+
+	switch (wparam)
+	{
+		case VK_UP:
+		{
+			if (menu.selected > 0)
+				menu.selected -= 1;
+			else
+				menu.selected = MENU_ITEM_COUNT - 1;
+
+			return TRUE;
+		}
+
+		case VK_DOWN:
+		{
+			if (menu.selected < MENU_ITEM_COUNT - 1)
+				menu.selected += 1;
+			else
+				menu.selected = 0;
+
+			return TRUE;
+		}
+
+		case VK_LEFT:
+		case VK_RIGHT:
+		{
+			delta = (wparam == VK_RIGHT) ? 1 : -1;
+
+			if (GetKeyState (VK_SHIFT) & 0x8000)
+				delta *= 10;
+
+			switch (menu.selected)
+			{
+				case 0: // SPEED
+				{
+					new_val = config.speed + delta;
+
+					if (new_val < SPEED_MIN) new_val = SPEED_MIN;
+					if (new_val > SPEED_MAX) new_val = SPEED_MAX;
+
+					config.speed = new_val;
+
+					KillTimer (hwnd, UID);
+					SetTimer (hwnd, UID, ((SPEED_MAX - config.speed) + SPEED_MIN) * 10, 0);
+
+					break;
+				}
+
+				case 1: // DENSITY
+				{
+					new_val = config.density + delta;
+
+					if (new_val < DENSITY_MIN) new_val = DENSITY_MIN;
+					if (new_val > DENSITY_MAX) new_val = DENSITY_MAX;
+
+					config.density = new_val;
+
+					break;
+				}
+
+				case 2: // AMOUNT
+				{
+					new_val = config.amount + delta;
+
+					if (new_val < AMOUNT_MIN) new_val = AMOUNT_MIN;
+					if (new_val > AMOUNT_MAX) new_val = AMOUNT_MAX;
+
+					config.amount = new_val;
+
+					break;
+				}
+
+				case 3: // HUE
+				{
+					new_val = config.hue + delta;
+
+					if (new_val < HUE_MIN) new_val = HUE_MIN;
+					if (new_val > HUE_MAX) new_val = HUE_MAX;
+
+					config.hue = new_val;
+
+					break;
+				}
+
+				case 4: // RANDOM
+				{
+					config.is_random = !config.is_random;
+
+					break;
+				}
+
+				case 5: // SMOOTH
+				{
+					config.is_smooth = !config.is_smooth;
+
+					break;
+				}
+
+				case 6: // ESC ONLY
+				{
+					config.is_esc_only = !config.is_esc_only;
+
+					break;
+				}
+			}
+
+			return TRUE;
+		}
+
+		case 'R':
+		{
+			config.speed = SPEED_DEFAULT;
+			config.density = DENSITY_DEFAULT;
+			config.amount = AMOUNT_DEFAULT;
+			config.hue = HUE_DEFAULT;
+			config.is_random = HUE_RANDOM;
+			config.is_smooth = HUE_RANDOM_SMOOTHTRANSITION;
+			config.is_esc_only = FALSE;
+
+			KillTimer (hwnd, UID);
+			SetTimer (hwnd, UID, ((SPEED_MAX - config.speed) + SPEED_MIN) * 10, 0);
+
+			return TRUE;
+		}
+
+		case VK_ESCAPE:
+		{
+			menu.is_visible = FALSE;
+
+			SaveSettings ();
+
+			return TRUE;
+		}
+	}
+
+	// Consume all other keys when menu is open
+	return TRUE;
+}
+
 LRESULT CALLBACK ScreensaverProc (
 	_In_ HWND hwnd,
 	_In_ UINT msg,
@@ -531,6 +856,12 @@ LRESULT CALLBACK ScreensaverProc (
 				DestroyMatrix (&matrix);
 			}
 
+			if (menu.hfont)
+			{
+				DeleteObject (menu.hfont);
+				menu.hfont = NULL;
+			}
+
 			if (config.is_preview && !GetParent (hwnd))
 				return FALSE;
 
@@ -551,7 +882,22 @@ LRESULT CALLBACK ScreensaverProc (
 			matrix = (PMATRIX)GetWindowLongPtr (hwnd, GWLP_USERDATA);
 
 			if (matrix)
+			{
 				DecodeMatrix (hwnd, matrix);
+
+				if (menu.is_visible)
+				{
+					HDC hdc_menu;
+
+					hdc_menu = GetDC (hwnd);
+
+					if (hdc_menu)
+					{
+						DrawTerminalMenu (hdc_menu, matrix->width, matrix->height);
+						ReleaseDC (hwnd, hdc_menu);
+					}
+				}
+			}
 
 			return FALSE;
 		}
@@ -559,6 +905,9 @@ LRESULT CALLBACK ScreensaverProc (
 		case WM_KEYDOWN:
 		case WM_SYSKEYDOWN:
 		{
+			if (HandleMenuKey (hwnd, wparam))
+				return FALSE;
+
 			if (wparam != VK_ESCAPE && config.is_esc_only)
 				return FALSE;
 
@@ -571,7 +920,7 @@ LRESULT CALLBACK ScreensaverProc (
 		{
 			LONG icon_size;
 
-			if (GetParent (hwnd) || config.is_esc_only)
+			if (GetParent (hwnd) || config.is_esc_only || menu.is_visible)
 				return FALSE;
 
 			if (!is_savecursor)
@@ -601,7 +950,7 @@ LRESULT CALLBACK ScreensaverProc (
 		case WM_RBUTTONDOWN:
 		case WM_MBUTTONDOWN:
 		{
-			if (GetParent (hwnd) || config.is_esc_only)
+			if (GetParent (hwnd) || config.is_esc_only || menu.is_visible)
 				return FALSE;
 
 			DestroyWindow (hwnd);

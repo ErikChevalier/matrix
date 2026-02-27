@@ -91,3 +91,13 @@ typedef struct _MATRIX
 
 	MATRIX_COLUMN column[1];
 } MATRIX, *PMATRIX;
+
+// Terminal menu
+#define MENU_ITEM_COUNT 7
+
+typedef struct _MENU_STATE
+{
+	BOOLEAN is_visible;
+	LONG selected;
+	HFONT hfont;
+} MENU_STATE, *PMENU_STATE;
