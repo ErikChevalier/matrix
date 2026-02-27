@@ -12,6 +12,45 @@
 STATIC_DATA config = {0};
 MENU_STATE menu = {0};
 
+// Rezmason-inspired themes mapped to GDI screensaver parameters
+// Hue values: Windows HLS (0-240 wraps), our range 1-255
+// Rezmason HSL hue (0-1) * 240 = Windows HLS hue
+static const THEME themes[THEME_COUNT] = {
+	//                           hue  spd  den  amt  rnd    smooth
+	{ L"CLASSIC",                 72,   6,  30,  26, FALSE, TRUE  }, // Green (0.3*240)
+	{ L"MEGACITY",                72,   3,  30,  26, FALSE, TRUE  }, // Green, slow
+	{ L"OPERATOR",                96,   8,  40,  26, FALSE, TRUE  }, // Teal (0.4*240), fast dense
+	{ L"NIGHTMARE",                1,  10,  20,  26, FALSE, TRUE  }, // Red (0.0), fast sparse
+	{ L"PARADISE",                12,   2,  15,  26, FALSE, TRUE  }, // Warm orange (0.05*240), very slow
+	{ L"RESURRECTIONS",           90,   6,  30,  26, FALSE, TRUE  }, // Teal-green (0.375*240)
+	{ L"TRINITY",                 89,   5,  25,  26, FALSE, TRUE  }, // Teal (0.37*240)
+	{ L"MORPHEUS",               233,   4,  25,  26, FALSE, TRUE  }, // Red-violet (0.97*240)
+	{ L"BUGS",                    29,   7,  25,  26, FALSE, TRUE  }, // Amber (0.12*240)
+	{ L"PALIMPSEST",             144,   7,  35,  20, FALSE, TRUE  }, // Blue (0.6*240)
+	{ L"TWILIGHT",               153,   3,  25,  20, FALSE, TRUE  }, // Blue-purple (0.6-0.88)
+	{ L"NEOMATRIXOLOGY",          36,   5,  40,  12, FALSE, TRUE  }, // Yellow (0.15*240)
+	{ L"RAINBOW",                 72,   7,  30,  26, TRUE,  TRUE  }, // Cycling random colors
+};
+
+VOID ApplyTheme (
+	_In_ HWND hwnd,
+	_In_ LONG theme_index
+)
+{
+	config.hue = themes[theme_index].hue;
+	config.speed = themes[theme_index].speed;
+	config.density = themes[theme_index].density;
+	config.amount = themes[theme_index].amount;
+	config.is_random = themes[theme_index].is_random;
+	config.is_smooth = themes[theme_index].is_smooth;
+
+	if (hwnd)
+	{
+		KillTimer (hwnd, UID);
+		SetTimer (hwnd, UID, ((SPEED_MAX - config.speed) + SPEED_MIN) * 10, 0);
+	}
+}
+
 #define RND_MAX INT_MAX
 
 VOID ReadSettings ()
@@ -492,7 +531,8 @@ VOID DrawTerminalMenu (
 	_In_ ULONG screen_height
 )
 {
-	static LPCWSTR names[MENU_ITEM_COUNT] = {
+	// Items 1-7 (after THEME at index 0)
+	static LPCWSTR names[7] = {
 		L"SPEED",
 		L"DENSITY",
 		L"AMOUNT",
@@ -502,15 +542,15 @@ VOID DrawTerminalMenu (
 		L"ESC ONLY"
 	};
 
-	static LONG mins[MENU_ITEM_COUNT] = {
+	static LONG mins[7] = {
 		SPEED_MIN, DENSITY_MIN, AMOUNT_MIN, HUE_MIN, 0, 0, 0
 	};
 
-	static LONG maxs[MENU_ITEM_COUNT] = {
+	static LONG maxs[7] = {
 		SPEED_MAX, DENSITY_MAX, AMOUNT_MAX, HUE_MAX, 1, 1, 1
 	};
 
-	LONG values[MENU_ITEM_COUNT];
+	LONG values[7];
 	HFONT hfont_old;
 	HBRUSH bg_brush;
 	HPEN border_pen;
@@ -537,8 +577,8 @@ VOID DrawTerminalMenu (
 	values[6] = (LONG)config.is_esc_only;
 
 	line_h = 20;
-	menu_w = 440;
-	menu_h = line_h * 12 + 32;
+	menu_w = 460;
+	menu_h = line_h * 13 + 32;
 	left = ((LONG)screen_width - menu_w) / 2;
 	top = ((LONG)screen_height - menu_h) / 2;
 
@@ -594,19 +634,38 @@ VOID DrawTerminalMenu (
 
 	// Separator
 	SetTextColor (hdc, RGB (0, 120, 30));
-	wsprintfW (line, L"  ==========================================");
+	wsprintfW (line, L"  ==============================================");
 	TextOutW (hdc, x, y, line, lstrlenW (line));
 	y += line_h;
 
 	// Half-line gap
 	y += line_h / 2;
 
-	// Menu items
-	for (i = 0; i < MENU_ITEM_COUNT; i++)
-	{
-		cursor = (i == menu.selected) ? L"> " : L"  ";
+	// Item 0: THEME selector
+	cursor = (menu.selected == 0) ? L"> " : L"  ";
 
-		if (i == menu.selected)
+	if (menu.selected == 0)
+		SetTextColor (hdc, RGB (0, 255, 65));
+	else
+		SetTextColor (hdc, RGB (0, 140, 35));
+
+	wsprintfW (line, L"%s%-20s [ %-14s ]",
+		cursor, L"THEME", themes[menu.current_theme].name);
+	TextOutW (hdc, x, y, line, lstrlenW (line));
+	y += line_h;
+
+	// Sub-separator
+	SetTextColor (hdc, RGB (0, 80, 20));
+	wsprintfW (line, L"  ----------------------------------------------");
+	TextOutW (hdc, x, y, line, lstrlenW (line));
+	y += line_h;
+
+	// Items 1-7: parameter controls
+	for (i = 0; i < 7; i++)
+	{
+		cursor = ((i + 1) == menu.selected) ? L"> " : L"  ";
+
+		if ((i + 1) == menu.selected)
 			SetTextColor (hdc, RGB (0, 255, 65));
 		else
 			SetTextColor (hdc, RGB (0, 140, 35));
@@ -633,13 +692,13 @@ VOID DrawTerminalMenu (
 
 	// Bottom separator
 	SetTextColor (hdc, RGB (0, 120, 30));
-	wsprintfW (line, L"  ==========================================");
+	wsprintfW (line, L"  ==============================================");
 	TextOutW (hdc, x, y, line, lstrlenW (line));
 	y += line_h;
 
 	// Help text
 	SetTextColor (hdc, RGB (0, 100, 25));
-	wsprintfW (line, L"  F1:MENU  ARROWS:NAV/SET  SHIFT:x10  R:RST");
+	wsprintfW (line, L"  F1:MENU  ARROWS:NAV/SET  SHIFT:x10  R:RESET");
 	TextOutW (hdc, x, y, line, lstrlenW (line));
 
 	SelectObject (hdc, hfont_old);
@@ -704,7 +763,22 @@ BOOLEAN HandleMenuKey (
 
 			switch (menu.selected)
 			{
-				case 0: // SPEED
+				case 0: // THEME
+				{
+					menu.current_theme += (delta > 0) ? 1 : -1;
+
+					if (menu.current_theme < 0)
+						menu.current_theme = THEME_COUNT - 1;
+
+					if (menu.current_theme >= THEME_COUNT)
+						menu.current_theme = 0;
+
+					ApplyTheme (hwnd, menu.current_theme);
+
+					break;
+				}
+
+				case 1: // SPEED
 				{
 					new_val = config.speed + delta;
 
@@ -719,7 +793,7 @@ BOOLEAN HandleMenuKey (
 					break;
 				}
 
-				case 1: // DENSITY
+				case 2: // DENSITY
 				{
 					new_val = config.density + delta;
 
@@ -731,7 +805,7 @@ BOOLEAN HandleMenuKey (
 					break;
 				}
 
-				case 2: // AMOUNT
+				case 3: // AMOUNT
 				{
 					new_val = config.amount + delta;
 
@@ -743,7 +817,7 @@ BOOLEAN HandleMenuKey (
 					break;
 				}
 
-				case 3: // HUE
+				case 4: // HUE
 				{
 					new_val = config.hue + delta;
 
@@ -755,21 +829,21 @@ BOOLEAN HandleMenuKey (
 					break;
 				}
 
-				case 4: // RANDOM
+				case 5: // RANDOM
 				{
 					config.is_random = !config.is_random;
 
 					break;
 				}
 
-				case 5: // SMOOTH
+				case 6: // SMOOTH
 				{
 					config.is_smooth = !config.is_smooth;
 
 					break;
 				}
 
-				case 6: // ESC ONLY
+				case 7: // ESC ONLY
 				{
 					config.is_esc_only = !config.is_esc_only;
 
@@ -782,16 +856,11 @@ BOOLEAN HandleMenuKey (
 
 		case 'R':
 		{
-			config.speed = SPEED_DEFAULT;
-			config.density = DENSITY_DEFAULT;
-			config.amount = AMOUNT_DEFAULT;
-			config.hue = HUE_DEFAULT;
-			config.is_random = HUE_RANDOM;
-			config.is_smooth = HUE_RANDOM_SMOOTHTRANSITION;
-			config.is_esc_only = FALSE;
+			menu.current_theme = 0;
 
-			KillTimer (hwnd, UID);
-			SetTimer (hwnd, UID, ((SPEED_MAX - config.speed) + SPEED_MIN) * 10, 0);
+			ApplyTheme (hwnd, menu.current_theme);
+
+			config.is_esc_only = FALSE;
 
 			return TRUE;
 		}

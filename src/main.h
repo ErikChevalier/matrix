@@ -92,12 +92,25 @@ typedef struct _MATRIX
 	MATRIX_COLUMN column[1];
 } MATRIX, *PMATRIX;
 
-// Terminal menu
-#define MENU_ITEM_COUNT 7
+// Theme system (inspired by Rezmason/matrix)
+#define THEME_COUNT 13
+#define MENU_ITEM_COUNT 8 // theme + 7 params
+
+typedef struct _THEME
+{
+	LPCWSTR name;
+	LONG hue;
+	LONG speed;
+	LONG density;
+	LONG amount;
+	BOOLEAN is_random;
+	BOOLEAN is_smooth;
+} THEME, *PTHEME;
 
 typedef struct _MENU_STATE
 {
 	BOOLEAN is_visible;
 	LONG selected;
+	LONG current_theme;
 	HFONT hfont;
 } MENU_STATE, *PMENU_STATE;
